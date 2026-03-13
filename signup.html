@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ScanMark Sign Up</title>
+
+<style>
+body{
+font-family: Arial;
+background: linear-gradient(135deg,#ffb6b9,#fae3d9,#bbded6,#8ac6d1);
+display:flex;
+justify-content:center;
+align-items:center;
+height:100vh;
+margin:0;
+}
+
+main{
+background:white;
+padding:40px;
+width:340px;
+border-radius:12px;
+box-shadow:0 0 18px rgba(0,0,0,0.18);
+text-align:center;
+}
+
+h1{
+color:#2c3e50;
+}
+
+input{
+width:100%;
+padding:10px;
+margin:10px 0;
+border:1px solid #ccc;
+border-radius:5px;
+}
+
+button{
+width:100%;
+padding:10px;
+background:#2c7be5;
+border:none;
+color:white;
+font-size:16px;
+border-radius:5px;
+cursor:pointer;
+}
+
+button:hover{
+background:#1a5fc1;
+}
+
+.login-link{
+margin-top:15px;
+font-size:14px;
+}
+
+a{
+color:#2c7be5;
+text-decoration:none;
+}
+</style>
+
+</head>
+
+<body>
+
+<main>
+
+<h1>ScanMark</h1>
+<p>Create Account</p>
+
+<form id="signupForm">
+
+<input type="text" id="username" placeholder="Username" required>
+
+<input type="email" id="email" placeholder="Email" required>
+
+<input type="password" id="password" placeholder="Password" required>
+
+<button type="submit">Create Account</button>
+
+</form>
+
+<div id="message"></div>
+
+<div class="login-link">
+Already have an account?
+<a href="login.html">Login</a>
+</div>
+
+</main>
+
+<script>
+document.getElementById('signupForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const username = document.getElementById('username').value;
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const messageDiv = document.getElementById('message');
+
+    fetch('/signup', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, email, password })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            messageDiv.innerHTML = '<p style="color: green;">' + data.message + '</p>';
+            setTimeout(() => window.location.href = 'login.html', 2000);
+        } else {
+            messageDiv.innerHTML = '<p style="color: red;">' + data.error + '</p>';
+        }
+    })
+    .catch(error => {
+        messageDiv.innerHTML = '<p style="color: red;">An error occurred. Please try again.</p>';
+    });
+});
+</script>
+
+</body>
+</html>

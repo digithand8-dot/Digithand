@@ -1,0 +1,53 @@
+body{
+margin:0;
+padding:0;
+font-family:Arial, sans-serif;
+background:#0f172a;
+color:white;
+overflow:hidden;
+}
+
+.intro{
+height:100vh;
+display:flex;
+justify-content:center;
+align-items:center;
+flex-direction:column;
+position:relative;
+}
+
+.logo{
+font-size:70px;
+letter-spacing:8px;
+font-weight:bold;
+}
+
+.logo span{
+color:#38bdf8;
+}
+
+.scanner{
+width:300px;
+height:3px;
+background:#22c55e;
+position:absolute;
+animation:scan 2s infinite;
+}
+
+@keyframes scan{
+
+0%{
+transform:translateY(-50px);
+opacity:0;
+}
+
+50%{
+opacity:1;
+}
+
+100%{
+transform:translateY(50px);
+opacity:0;
+}
+
+}

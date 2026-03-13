@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<title>ScanMark Dashboard</title>
+
+<link rel="stylesheet" href="css/style.css">
+
+<style>
+
+.upload-box{
+background:white;
+padding:30px;
+width:420px;
+margin:auto;
+border-radius:10px;
+box-shadow:0 0 10px rgba(0,0,0,0.2);
+text-align:center;
+}
+
+.preview{
+margin-top:20px;
+}
+
+table{
+margin-top:30px;
+width:80%;
+border-collapse:collapse;
+margin-left:auto;
+margin-right:auto;
+}
+
+table, th, td{
+border:1px solid #ccc;
+}
+
+th, td{
+padding:10px;
+text-align:center;
+}
+
+th{
+background:#2c7be5;
+color:white;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+<h2>ScanMark</h2>
+<p>Automated Handwritten Marks Recognition System</p>
+</header>
+
+<nav>
+
+<a href="dashboard.html">Home</a>
+<a href="about.html">About</a>
+<a href="contact.html">Contact</a>
+<a href="login.html">Logout</a>
+
+</nav>
+
+<br>
+
+<div class="upload-box">
+
+<h3>Upload Marksheet</h3>
+
+<input type="file" id="imageInput" onchange="previewImage()">
+
+<br><br>
+
+<button onclick="uploadImage()">Upload</button>
+
+<div class="preview">
+<img id="preview" width="250">
+</div>
+
+<p id="message"></p>
+
+</div>
+
+<br>
+
+<h3 style="text-align:center;">Recognized Marks</h3>
+
+<table>
+
+<thead>
+<tr>
+<th>Roll Number</th>
+<th>Marks</th>
+</tr>
+</thead>
+
+<tbody id="resultTable">
+
+</tbody>
+
+</table>
+
+<footer>
+
+<p>© 2026 ScanMark System</p>
+<p>Email: scanmark@system.com</p>
+
+</footer>
+
+<script>
+
+function previewImage(){
+
+let file=document.getElementById("imageInput").files[0];
+
+let reader=new FileReader();
+
+reader.onload=function(e){
+document.getElementById("preview").src=e.target.result;
+}
+
+reader.readAsDataURL(file);
+
+}
+
+
+function uploadImage(){
+
+let file=document.getElementById("imageInput").files[0];
+
+if(!file){
+document.getElementById("message").innerHTML="Please select an image.";
+return;
+}
+
+document.getElementById("message").innerHTML="Processing marksheet...";
+
+let formData=new FormData();
+formData.append("image",file);
+
+fetch("http://127.0.0.1:5000/scan",{
+
+method:"POST",
+body:formData
+
+})
+.then(response=>response.json())
+
+.then(data=>{
+
+document.getElementById("message").innerHTML="Recognition complete.";
+
+let table=document.getElementById("resultTable");
+table.innerHTML="";
+
+data.forEach(row=>{
+
+table.innerHTML += `
+<tr>
+<td>${row.roll}</td>
+<td>${row.marks}</td>
+</tr>
+`;
+
+});
+
+})
+
+.catch(error=>{
+
+document.getElementById("message").innerHTML="Error processing marksheet.";
+
+});
+
+}
+
+</script>
+
+</body>
+
+</html>
