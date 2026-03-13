@@ -1,24 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>ScanMark</title>
-<link rel="stylesheet" href="css/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScanMark | Automated Handwritten Marks Recognition</title>
+    <!-- Modern Font: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
 </head>
-
 <body>
 
-<div class="intro">
+    <header class="navbar">
+        <div class="logo">
+            <span class="logo-light">SCAN</span><span class="logo-bold">MARK</span>
+        </div>
+        <nav>
+            <a href="#" class="active">Home</a>
+            <a href="about.html">About</a>
+            <a href="contact.html">Contact</a>
+        </nav>
+    </header>
 
-    <h1 class="logo">
-        <span>SCAN</span><span>MARK</span>
-    </h1>
+    <main class="container">
+        <!-- Hero Section -->
+        <section class="hero">
+            <h1>Automated Handwritten Marks Recognition</h1>
+            <p>Upload your marksheet and let our AI models digitize the scores instantly with high accuracy.</p>
+        </section>
 
-    <div class="scanner"></div>
+        <!-- Main Upload Area -->
+        <section class="scanner-section">
+            <div class="upload-box">
+                <div class="upload-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                </div>
+                <h3>Upload Marksheet</h3>
+                <p class="subtitle">Supports JPG, PNG</p>
+                
+                <input type="file" id="imageInput" accept="image/*" onchange="previewImage()" class="file-input">
+                <label for="imageInput" class="custom-file-upload">
+                    Choose File
+                </label>
 
-</div>
+                <div class="preview-container">
+                    <img id="preview" alt="Image Preview">
+                </div>
 
-<script src="js/intro.js"></script>
+                <p id="message" class="status-message"></p>
 
+                <button id="uploadBtn" class="primary-btn" onclick="uploadImage()">Scan Document</button>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section class="results-section hidden" id="resultsSection">
+            <h2>Recognized Marks</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Roll Number</th>
+                            <th>Marks</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultTable">
+                        <!-- Data will be injected here via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>© 2026 ScanMark System | Digitize Handwriting Seamlessly</p>
+        <p>Email: <a href="mailto:scanmark@system.com">scanmark@system.com</a></p>
+    </footer>
+
+    <!-- JavaScript integrated from previous dashboard -->
+    <script>
+        function previewImage() {
+            const file = document.getElementById("imageInput").files[0];
+            const preview = document.getElementById("preview");
+            const previewContainer = document.querySelector(".preview-container");
+            const message = document.getElementById("message");
+            const uploadBtn = document.getElementById("uploadBtn");
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    previewContainer.classList.add("active");
+                    message.innerHTML = "";
+                    message.className = "status-message";
+                    uploadBtn.style.display = "block";
+                }
+                reader.readAsDataURL(file);
+            } else {
+                previewContainer.classList.remove("active");
+                uploadBtn.style.display = "none";
+            }
+        }
+
+        function uploadImage() {
+            const file = document.getElementById("imageInput").files[0];
+            const message = document.getElementById("message");
+            const resultsSection = document.getElementById("resultsSection");
+            const uploadBtn = document.getElementById("uploadBtn");
+
+            if (!file) {
+                message.innerHTML = "Please select an image first.";
+                message.className = "status-message error";
+                return;
+            }
+
+            // Visual feedback while loading
+            message.innerHTML = `<span class="loader"></span> Processing marksheet...`;
+            message.className = "status-message loading";
+            uploadBtn.disabled = true;
+            uploadBtn.innerText = "Scanning...";
+
+            let formData = new FormData();
+            formData.append("image", file);
+
+            fetch("http://127.0.0.1:5000/scan", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error("Network response was not ok");
+                }
+                return response.json();
+            })
+            .then(data => {
+                uploadBtn.disabled = false;
+                uploadBtn.innerText = "Scan Document";
+
+                if (data.error) {
+                    message.innerHTML = data.error;
+                    message.className = "status-message error";
+                    return;
+                }
+
+                message.innerHTML = "Recognition complete.";
+                message.className = "status-message success";
+                
+                // Populate Table
+                let table = document.getElementById("resultTable");
+                table.innerHTML = "";
+                
+                if (data.length === 0) {
+                     table.innerHTML = `<tr><td colspan="2">No marks detected. Please try a clearer image.</td></tr>`;
+                } else {
+                    data.forEach(row => {
+                        table.innerHTML += `
+                        <tr>
+                            <td>${row.roll || 'N/A'}</td>
+                            <td><span class="mark-badge">${row.marks || 'N/A'}</span></td>
+                        </tr>
+                        `;
+                    });
+                }
+                
+                // Reveal results section smoothly
+                resultsSection.classList.remove("hidden");
+                resultsSection.classList.add("fade-in");
+                
+                // Scroll to results
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            })
+            .catch(error => {
+                uploadBtn.disabled = false;
+                uploadBtn.innerText = "Scan Document";
+                message.innerHTML = "Error processing marksheet. Is the server running?";
+                message.className = "status-message error";
+                console.error("Scanning Error:", error);
+            });
+        }
+    </script>
 </body>
 </html>

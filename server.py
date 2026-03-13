@@ -3,30 +3,13 @@ import cv2
 import pytesseract
 import numpy as np
 import re
-import sqlite3
-from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Change this to a random secret key
+# Change this to a random secret key if you use sessions
+app.secret_key = 'your_secret_key' 
 
-# Tesseract path
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-def get_db():
-    conn = sqlite3.connect('users.db')
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    with get_db() as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
-        )''')
-
-init_db()
+# Tesseract path - commented out so it uses system default on Linux
+# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
 def read_marks(image):
@@ -79,43 +62,6 @@ def scan():
 
     return jsonify(data)
 
-@app.route('/signup', methods=['POST'])
-def signup():
-    data = request.get_json()
-    username = data.get('username')
-    email = data.get('email')
-    password = data.get('password')
-
-    if not username or not email or not password:
-        return jsonify({"error": "All fields are required"}), 400
-
-    hashed_password = generate_password_hash(password)
-
-    with get_db() as conn:
-        try:
-            conn.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-                         (username, email, hashed_password))
-            return jsonify({"message": "Account created successfully"}), 201
-        except sqlite3.IntegrityError:
-            return jsonify({"error": "Username or email already exists"}), 409
-
-@app.route('/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-
-    if not username or not password:
-        return jsonify({"error": "Username and password are required"}), 400
-
-    with get_db() as conn:
-        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-
-    if user and check_password_hash(user['password'], password):
-        session['user_id'] = user['id']
-        return jsonify({"message": "Login successful"}), 200
-    else:
-        return jsonify({"error": "Invalid username or password"}), 401
 
 @app.route('/<path:path>')
 def serve_static(path):
