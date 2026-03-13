@@ -303,6 +303,23 @@ tbody tr:last-child td {
     font-size: 0.9rem;
 }
 
+.total-row {
+    background-color: #f1f5f9;
+}
+
+.total-row td {
+    font-size: 1.1rem;
+    color: var(--text-main);
+    border-top: 2px solid #cbd5e1;
+}
+
+.total-badge {
+    background-color: var(--primary-color);
+    color: white;
+    font-size: 1.1rem;
+    padding: 0.35rem 1rem;
+}
+
 /* Footer */
 footer {
     text-align: center;

@@ -63,7 +63,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Roll Number</th>
+                            <th>Question Number</th>
                             <th>Marks</th>
                         </tr>
                     </thead>
@@ -153,17 +153,25 @@
                 let table = document.getElementById("resultTable");
                 table.innerHTML = "";
                 
-                if (data.length === 0) {
+                if (!data.questions || data.questions.length === 0) {
                      table.innerHTML = `<tr><td colspan="2">No marks detected. Please try a clearer image.</td></tr>`;
                 } else {
-                    data.forEach(row => {
+                    data.questions.forEach(row => {
                         table.innerHTML += `
                         <tr>
-                            <td>${row.roll || 'N/A'}</td>
-                            <td><span class="mark-badge">${row.marks || 'N/A'}</span></td>
+                            <td>Q${row.q_no}</td>
+                            <td><span class="mark-badge">${row.marks}</span></td>
                         </tr>
                         `;
                     });
+                    
+                    // Add total marks row
+                    table.innerHTML += `
+                    <tr class="total-row">
+                        <td><strong>Total Marks</strong></td>
+                        <td><span class="mark-badge total-badge">${data.total_marks}</span></td>
+                    </tr>
+                    `;
                 }
                 
                 // Reveal results section smoothly
