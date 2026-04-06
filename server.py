@@ -1,203 +1,175 @@
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress TF warnings
-from flask import Flask, request, jsonify, redirect, url_for, session, send_from_directory
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+from flask import Flask, request, jsonify, send_from_directory
 import cv2
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import load_model
+import easyocr
+import re
 
 app = Flask(__name__)
-# Change this to a random secret key if you use sessions
-app.secret_key = 'your_secret_key' 
+app.secret_key = 'your_secret_key'
 
-# Load the trained model at startup to save time during requests
-model = None
-try:
-    model = load_model("digit_model.h5")
-except Exception as e:
-    print("Warning: Could not load digit_model.h5")
+# Initialize EasyOCR once at startup
+print("Loading EasyOCR model...")
+reader = easyocr.Reader(['en'], gpu=False)
+print("EasyOCR ready.")
 
-def preprocess_for_prediction(roi):
-    """ Resizes and pads the extracted contour to 28x28 for the CNN. """
-    h, w = roi.shape
-    if h > w:
-        new_h, new_w = 20, int(20 * w / h)
-    else:
-        new_h, new_w = int(20 * h / w), 20
-    if new_h == 0 or new_w == 0:
-        return np.zeros((1, 28, 28, 1), dtype=np.float32)
+os.makedirs("debug_images", exist_ok=True)
 
-    resized = cv2.resize(roi, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    
-    top = (28 - new_h) // 2
-    bottom = 28 - new_h - top
-    left = (28 - new_w) // 2
-    right = 28 - new_w - left
-    
-    padded = cv2.copyMakeBorder(resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=0)
-    padded = padded.astype("float32") / 255.0
-    return padded.reshape(1, 28, 28, 1)
+
+def preprocess_image(img):
+    """
+    Enhance image for OCR:
+    - Upscale 2x for better recognition
+    - Convert to grayscale
+    - Apply CLAHE for contrast normalisation
+    - Adaptive threshold to clean up ink
+    """
+    # Upscale for cleaner text
+    img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # CLAHE contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+
+    # Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
+
+    # Adaptive thresholding to get clean binary image
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        15, 4
+    )
+    return img, thresh
+
+
+def group_detections_into_rows(detections, row_tolerance=25):
+    """
+    Groups OCR bounding boxes into horizontal rows by their Y centre.
+    Returns a list of rows, each row is a list of detections sorted left-to-right.
+    """
+    if not detections:
+        return []
+
+    # Sort all detections by y-centre
+    detections = sorted(detections, key=lambda d: (d[0][0][1] + d[0][2][1]) / 2)
+
+    rows = []
+    current_row = [detections[0]]
+    current_y = (detections[0][0][0][1] + detections[0][0][2][1]) / 2
+
+    for det in detections[1:]:
+        det_y = (det[0][0][1] + det[0][2][1]) / 2
+        if abs(det_y - current_y) <= row_tolerance:
+            current_row.append(det)
+        else:
+            rows.append(sorted(current_row, key=lambda d: d[0][0][0]))  # sort by x
+            current_row = [det]
+            current_y = det_y
+
+    if current_row:
+        rows.append(sorted(current_row, key=lambda d: d[0][0][0]))
+
+    return rows
+
+
+def extract_mark_from_row(row_texts):
+    """
+    Given a list of text tokens from a single row,
+    determine the mark value. The mark is typically the last number
+    or 'Ab' token in the row.
+    Returns (mark_str, mark_int)
+    """
+    combined = " ".join(row_texts).strip()
+
+    # Check for Absent first
+    if re.search(r'\bab\b', combined.lower()):
+        return "Ab", 0
+
+    # Find all numeric tokens in the row
+    numbers = re.findall(r'\d+', combined)
+    if not numbers:
+        return None, None
+
+    # The marks column should be the LAST number in the row.
+    mark_str = numbers[-1]
+    try:
+        mark_val = int(mark_str)
+        # Sanity check: marks are usually 0-100
+        if 0 <= mark_val <= 100:
+            return mark_str, mark_val
+    except ValueError:
+        pass
+
+    return None, None
+
 
 def read_marks(image_bytes):
-    if model is None:
-        return {"error": "Model not loaded on server."}
+    """
+    Main entry point: takes image bytes, runs EasyOCR, groups into rows,
+    extracts marks and returns structured result.
+    """
+    img_arr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
 
-    img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
-    
-    # 1. Grayscale and threshold
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5,5), 0)
-    # Adaptive thresholding
-    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 5)
-    
+    if img is None:
+        return {"error": "Could not decode image"}
+
+    # Preprocess
+    upscaled, thresh = preprocess_image(img)
     cv2.imwrite("debug_images/01_thresh.jpg", thresh)
-    
-    # 2. Extract Connected Components
-    # We dilate horizontally to group "24", "Ab", etc., into single words
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 3))
-    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    
-    cv2.imwrite("debug_images/03_cleaned.jpg", cleaned)
-    
-    # 3. Contour Detection
-    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    debug_img = img.copy()
-    valid_contours = []
-    h, w = thresh.shape
-    
-    for c in contours:
-        x, y, cw, ch = cv2.boundingRect(c)
-        area = cw * ch
-        if 50 < area < (h*w*0.05) and 10 < ch < 100:
-            valid_contours.append((x, y, cw, ch, c))
-            
-    # Group into 4 columns based on page width
-    cols = [[] for _ in range(4)]
-    col_width = w / 4.0
-    for box in valid_contours:
-        x, y, cw, ch, c = box
-        cx = x + cw / 2.0
-        c_idx = int(cx // col_width)
-        if c_idx >= 4: c_idx = 3
-        if c_idx < 0: c_idx = 0
-        cols[c_idx].append(box)
+
+    # Run EasyOCR on the preprocessed image
+    # Use raw image for better results (EasyOCR handles preprocessing internally)
+    detections = reader.readtext(upscaled, detail=1, paragraph=False)
+
+    # Save debug image with all detected boxes
+    debug_img = upscaled.copy()
+    for (bbox, text, conf) in detections:
+        pts = np.array(bbox, np.int32)
+        cv2.polylines(debug_img, [pts], True, (0, 200, 255), 2)
+        cv2.putText(debug_img, f"{text}({conf:.2f})",
+                    (int(bbox[0][0]), int(bbox[0][1]) - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 255), 1)
+    cv2.imwrite("debug_images/02_ocr_boxes.jpg", debug_img)
+
+    # Filter low confidence
+    detections = [(bbox, text, conf) for (bbox, text, conf) in detections if conf > 0.25]
+
+    if not detections:
+        return {"questions": [], "total_marks": 0, "message": "No text detected"}
+
+    # Group into horizontal rows
+    rows = group_detections_into_rows(detections, row_tolerance=30)
 
     results = []
     total_marks = 0
-    q_no = 1
-    import pytesseract
+    roll_no = 1
 
-    for c_idx, col_boxes in enumerate(cols):
-        # Sort vertically inside column
-        col_boxes.sort(key=lambda b: b[1])
-        
-        lines = []
-        current_line = []
-        for box in col_boxes:
-            if not current_line:
-                current_line.append(box)
-            else:
-                last_box = current_line[-1]
-                # If on same physical line (allow 20px dev)
-                if abs(box[1] - last_box[1]) < 20:
-                    current_line.append(box)
-                else:
-                    lines.append(current_line)
-                    current_line = [box]
-        if current_line:
-            lines.append(current_line)
-            
-        for line in lines:
-            if len(line) < 2:
-                continue
-                
-            line.sort(key=lambda b: b[0]) # Left to right
-            
-            # The right-most block is the mark
-            mark_box = line[-1]
-            x, y, cw, ch, c = mark_box
-            cv2.rectangle(debug_img, (x, y), (x+cw, y+ch), (0, 255, 0), 2)
-            
-            # Crop the mark from the original clean threshold map
-            digit_roi = thresh[y:y+ch, x:x+cw]
-            
-            # 1. OCR attempt for 'Ab' Check
-            img_inv = cv2.bitwise_not(digit_roi)
-            padded = cv2.copyMakeBorder(img_inv, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
-            config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789Ab'
-            text_pred = pytesseract.image_to_string(padded, config=config).strip()
-            
-            mark_val = 0
-            text_str = ""
-            
-            if "a" in text_pred.lower() or "b" in text_pred.lower():
-                text_str = "Ab"
-                mark_val = 0
-            else:
-                # 2. Fallback to CNN for accurate numbers
-                # Find exact, non-merged digits inside this block
-                sub_contours, _ = cv2.findContours(digit_roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                sub_boxes = [cv2.boundingRect(sc) for sc in sub_contours]
-                
-                # Filter out pure noise, dots, or horizontal dashes
-                valid_subs = []
-                for box in sub_boxes:
-                    sx, sy, sw, sh = box
-                    # A valid digit should have some area and be taller than 12 pixels
-                    # We also ignore boxes that are extremely wide compared to their height (like dashes)
-                    if sw*sh > 30 and sh > 12 and sw < sh * 2.5:
-                        valid_subs.append(box)
-                        
-                valid_subs.sort(key=lambda b: b[0]) # Left to right
-                
-                # Merge sub-boxes that overlap horizontally or are very close
-                # This prevents digits like '4' from being split into two CNN predictions
-                merged_boxes = []
-                for box in valid_subs:
-                    if not merged_boxes:
-                        merged_boxes.append(box)
-                    else:
-                        last = merged_boxes[-1]
-                        # If x-coordinates overalap or gap is less than 4 pixels
-                        if box[0] <= last[0] + last[2] + 4:
-                            x_min = min(last[0], box[0])
-                            x_max = max(last[0]+last[2], box[0]+box[2])
-                            y_min = min(last[1], box[1])
-                            y_max = max(last[1]+last[3], box[1]+box[3])
-                            merged_boxes[-1] = (x_min, y_min, x_max - x_min, y_max - y_min)
-                        else:
-                            merged_boxes.append(box)
-                
-                if not merged_boxes:
-                    text_str = "0"
-                else:
-                    detected_digits = []
-                    for sx, sy, sw, sh in merged_boxes:
-                        single_digit = digit_roi[sy:sy+sh, sx:sx+sw]
-                        processed = preprocess_for_prediction(single_digit)
-                        pred = model(processed, training=False)
-                        detected_digits.append(str(int(np.argmax(pred))))
-                        
-                    text_str = "".join(detected_digits)
-                    try:
-                        mark_val = int(text_str)
-                    except ValueError:
-                        mark_val = 0
-            
+    for row in rows:
+        row_texts = [det[1] for det in row]
+        mark_str, mark_val = extract_mark_from_row(row_texts)
+
+        if mark_str is not None:
             results.append({
-                "q_no": q_no,
-                "marks": text_str
+                "roll_no": roll_no,
+                "marks": mark_str
             })
             total_marks += mark_val
-            
-            # Use fixed increment across columns
-            # Column 1 starts 1, Column 2 starts ~20, etc. 
-            # Actually just trust q_no counter based on loops!
-            q_no += 1
-            
-    cv2.imwrite("debug_images/06_target_marks.jpg", debug_img)
-        
+            roll_no += 1
+
+    # Draw final results
+    result_img = upscaled.copy()
+    for row in rows:
+        for (bbox, text, conf) in row:
+            pts = np.array(bbox, np.int32)
+            cv2.polylines(result_img, [pts], True, (0, 255, 0), 2)
+    cv2.imwrite("debug_images/03_final_marks.jpg", result_img)
+
     return {
         "questions": results,
         "total_marks": total_marks
@@ -206,16 +178,13 @@ def read_marks(image_bytes):
 
 @app.route('/scan', methods=['POST'])
 def scan():
-
     if 'image' not in request.files:
         return jsonify({"error": "No image uploaded"})
 
     file = request.files['image']
-
     image = file.read()
 
     data = read_marks(image)
-
     return jsonify(data)
 
 

@@ -52,18 +52,23 @@
 
                 <p id="message" class="status-message"></p>
 
-                <button id="uploadBtn" class="primary-btn" onclick="uploadImage()">Scan Document</button>
+                <div style="display: flex; gap: 10px; justify-content: center; width: 100%;">
+                    <button id="uploadBtn" class="primary-btn" onclick="uploadImage()" style="flex: 1;">Scan Document</button>
+                    <button id="downloadCSVBtnMain" class="primary-btn" onclick="downloadCSV()" disabled style="flex: 1; background-color: #6c757d; border-color: #6c757d; cursor: not-allowed; opacity: 0.8;">Download CSV</button>
+                </div>
             </div>
         </section>
 
         <!-- Results Section -->
         <section class="results-section hidden" id="resultsSection">
-            <h2>Recognized Marks</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="margin: 0;">Recognized Marks</h2>
+            </div>
             <div class="table-container">
                 <table>
                     <thead>
                         <tr>
-                            <th>Question Number</th>
+                            <th>Roll Number</th>
                             <th>Marks</th>
                         </tr>
                     </thead>
@@ -82,6 +87,8 @@
 
     <!-- JavaScript integrated from previous dashboard -->
     <script>
+        let globalScanData = null;
+
         function previewImage() {
             const file = document.getElementById("imageInput").files[0];
             const preview = document.getElementById("preview");
@@ -97,11 +104,15 @@
                     message.innerHTML = "";
                     message.className = "status-message";
                     uploadBtn.style.display = "block";
+                    let dlBtn = document.getElementById("downloadCSVBtnMain");
+                    if (dlBtn) dlBtn.style.display = "block";
                 }
                 reader.readAsDataURL(file);
             } else {
                 previewContainer.classList.remove("active");
                 uploadBtn.style.display = "none";
+                let dlBtn = document.getElementById("downloadCSVBtnMain");
+                if (dlBtn) dlBtn.style.display = "none";
             }
         }
 
@@ -137,8 +148,18 @@
                 return response.json();
             })
             .then(data => {
+                globalScanData = data;
                 uploadBtn.disabled = false;
                 uploadBtn.innerText = "Scan Document";
+                
+                let dlBtn = document.getElementById("downloadCSVBtnMain");
+                if(dlBtn) {
+                    dlBtn.disabled = false;
+                    dlBtn.style.backgroundColor = "#28a745";
+                    dlBtn.style.borderColor = "#28a745";
+                    dlBtn.style.cursor = "pointer";
+                    dlBtn.style.opacity = "1";
+                }
 
                 if (data.error) {
                     message.innerHTML = data.error;
@@ -159,7 +180,7 @@
                     data.questions.forEach(row => {
                         table.innerHTML += `
                         <tr>
-                            <td>Q${row.q_no}</td>
+                            <td>${row.roll_no}</td>
                             <td><span class="mark-badge">${row.marks}</span></td>
                         </tr>
                         `;
@@ -189,6 +210,29 @@
                 message.className = "status-message error";
                 console.error("Scanning Error:", error);
             });
+        }
+
+        function downloadCSV() {
+            if (!globalScanData || !globalScanData.questions || globalScanData.questions.length === 0) {
+                alert("No data available to download.");
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Roll Number,Marks\n";
+            
+            globalScanData.questions.forEach(row => {
+                csvContent += `${row.roll_no},${row.marks}\n`;
+            });
+            csvContent += `Total Marks,${globalScanData.total_marks}\n`;
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "marks_data.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
     </script>
 </body>
